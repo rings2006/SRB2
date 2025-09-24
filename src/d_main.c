@@ -77,6 +77,7 @@
 #include "m_perfstats.h"
 #include "m_random.h"
 #include "command.h"
+#include "a11y.h"
 
 #ifdef CMAKECONFIG
 #include "config.h"
@@ -1630,6 +1631,9 @@ void D_SRB2Main(void)
 
 	CONS_Printf("ST_Init(): Init status bar.\n");
 	ST_Init();
+
+	CONS_Printf("A11Y_Init(): Init accessibility system.\n");
+	A11Y_Init();
 
 	if (M_CheckParm("-room"))
 	{

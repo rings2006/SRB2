@@ -63,6 +63,7 @@
 #include "st_stuff.h"
 #include "i_sound.h"
 #include "fastcmp.h"
+#include "a11y.h"
 
 #include "i_joy.h" // for joystick menu controls
 
@@ -3130,6 +3131,14 @@ static void M_NextOpt(void)
 			itemOn++;
 	} while (oldItemOn != itemOn && ( (currentMenu->menuitems[itemOn].status & IT_TYPE) & IT_SPACE ));
 	M_UpdateItemOn();
+	
+	// Add accessibility narration
+	if (currentMenu && currentMenu->menuitems && itemOn < currentMenu->numitems)
+	{
+		const char *itemtext = currentMenu->menuitems[itemOn].text;
+		if (itemtext)
+			A11Y_NarrateMenuItem(itemtext, NULL);
+	}
 }
 
 static void M_PrevOpt(void)
@@ -3143,6 +3152,14 @@ static void M_PrevOpt(void)
 			itemOn--;
 	} while (oldItemOn != itemOn && ( (currentMenu->menuitems[itemOn].status & IT_TYPE) & IT_SPACE ));
 	M_UpdateItemOn();
+	
+	// Add accessibility narration
+	if (currentMenu && currentMenu->menuitems && itemOn < currentMenu->numitems)
+	{
+		const char *itemtext = currentMenu->menuitems[itemOn].text;
+		if (itemtext)
+			A11Y_NarrateMenuItem(itemtext, NULL);
+	}
 }
 
 // lock out further input in a tic when important buttons are pressed
@@ -3859,6 +3876,20 @@ void M_SetupNextMenu(menu_t *menudef)
 	M_UpdateItemOn();
 
 	hidetitlemap = false;
+	
+	// Add accessibility narration for menu changes
+	if (menudef && menudef->menutitlepic)
+	{
+		A11Y_NarrateMenuChange(menudef->menutitlepic);
+	}
+	
+	// Narrate the current menu item
+	if (currentMenu && currentMenu->menuitems && itemOn < currentMenu->numitems)
+	{
+		const char *itemtext = currentMenu->menuitems[itemOn].text;
+		if (itemtext)
+			A11Y_NarrateMenuItem(itemtext, NULL);
+	}
 }
 
 // Guess I'll put this here, idk

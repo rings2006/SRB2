@@ -52,6 +52,7 @@
 
 #include "lua_hud.h"
 #include "lua_libs.h"
+#include "a11y.h"
 
 gameaction_t gameaction;
 gamestate_t gamestate = GS_NULL;
@@ -2430,6 +2431,10 @@ void G_Ticker(boolean run)
 			F_TextPromptTicker();
 			AM_Ticker();
 			HU_Ticker();
+			
+			// Update accessibility features
+			A11Y_UpdateBeacons();
+			A11Y_AutopilotUpdate();
 
 			break;
 
