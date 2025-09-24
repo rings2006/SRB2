@@ -206,6 +206,7 @@ static char returnWadPath[256];
 #include "../i_video.h"
 #include "../i_sound.h"
 #include "../i_system.h"
+#include "../i_accessibility.h"
 #include "../i_threads.h"
 #include "../screen.h" //vid.WndParent
 #include "../netcode/d_net.h"
@@ -2496,6 +2497,10 @@ void I_Quit(void)
 	if (quiting) goto death;
 	SDLforceUngrabMouse();
 	quiting = SDL_FALSE;
+	
+	// Clean up accessibility support
+	I_QuitAccessibility();
+	
 	M_SaveConfig(NULL); //save game config, cvars..
 	D_SaveBan(); // save the ban list
 	G_SaveGameData(clientGamedata); // Tails 12-08-2002

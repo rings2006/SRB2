@@ -47,6 +47,7 @@
 #include "i_time.h"
 #include "i_threads.h"
 #include "i_video.h"
+#include "i_accessibility.h"
 #include "m_argv.h"
 #include "m_menu.h"
 #include "m_misc.h"
@@ -1462,6 +1463,10 @@ void D_SRB2Main(void)
 
 	CONS_Printf("I_InitializeTime()...\n");
 	I_InitializeTime();
+	
+	// Initialize accessibility support for screen readers
+	CONS_Printf("I_InitAccessibility()...\n");
+	I_InitAccessibility();
 
 	// Make backups of some SOCcable tables.
 	P_BackupTables();

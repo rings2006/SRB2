@@ -21,6 +21,7 @@ add_executable(SRB2SDL2 MACOSX_BUNDLE WIN32
 	console.c
 	hu_stuff.c
 	i_time.c
+	i_accessibility.c
 	y_inter.c
 	st_stuff.c
 	m_aatree.c
@@ -458,6 +459,13 @@ if(TARGET CURL::libcurl)
 	message(STATUS "libcurl Found")
 else()
 	message(STATUS "No libcurl Found")
+endif()
+
+if(TARGET tolk)
+	target_link_libraries(SRB2SDL2 PRIVATE tolk)
+	message(STATUS "Tolk accessibility support enabled")
+else()
+	message(STATUS "Tolk accessibility support not available")
 endif()
 
 if(TARGET miniupnpc::miniupnpc)

@@ -48,6 +48,7 @@
 #include "p_setup.h"
 #include "f_finale.h"
 #include "lua_hook.h"
+#include "i_accessibility.h"
 
 #ifdef HWRENDER
 #include "hardware/hw_main.h"
@@ -2095,10 +2096,56 @@ menu_t OP_PlaystyleDef = {
 	0, 0, 0, NULL
 };
 
+// Announce current menu item for accessibility
+static void M_AnnounceMenuItem(void)
+{
+	const menuitem_t *item;
+	const char *text;
+	char announcement[256];
+	const char *itemtype = "";
+	
+	if (!I_AccessibilityEnabled() || !currentMenu || itemOn < 0 || itemOn >= currentMenu->numitems)
+		return;
+		
+	item = &currentMenu->menuitems[itemOn];
+	
+	// Don't announce spacer items
+	if ((item->status & IT_TYPE) & IT_SPACE)
+		return;
+		
+	// Get the item text
+	text = item->text;
+	if (!text)
+		return;
+		
+	// Determine item type for better context
+	if (item->status & IT_CVAR)
+	{
+		if ((item->status & IT_CVARTYPE) == IT_CV_SLIDER)
+			itemtype = " slider";
+		else if ((item->status & IT_CVARTYPE) == IT_CV_STRING)
+			itemtype = " text field";
+		else
+			itemtype = " option";
+	}
+	else if (item->status & IT_CALL)
+		itemtype = " button";
+	else if (item->status & IT_SUBMENU)
+		itemtype = " menu";
+	
+	snprintf(announcement, sizeof(announcement), "%s%s", text, itemtype);
+	
+	// Announce the item
+	I_SpeakText(announcement, false);
+}
+
 static void M_UpdateItemOn(void)
 {
 	I_SetTextInputMode((currentMenu->menuitems[itemOn].status & IT_CVARTYPE) == IT_CV_STRING ||
 		(currentMenu->menuitems[itemOn].status & IT_TYPE) == IT_KEYHANDLER);
+	
+	// Announce the newly selected menu item
+	M_AnnounceMenuItem();
 }
 
 static void M_VideoOptions(INT32 choice)
