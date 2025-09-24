@@ -370,7 +370,7 @@ void A11Y_UpdateBeacons(void)
 //
 // A11Y_AutopilotUpdate
 //
-// Update autopilot system
+// Update autopilot system with intelligent pathfinding
 //
 void A11Y_AutopilotUpdate(void)
 {
@@ -379,6 +379,10 @@ void A11Y_AutopilotUpdate(void)
     thinker_t *th;
     fixed_t goalDistance = INT32_MAX;
     angle_t goalAngle = 0;
+    fixed_t dist;
+    static INT32 stuck_counter = 0;
+    static fixed_t lastX = 0, lastY = 0;
+    static angle_t exploration_angle = 0;
     
     if (!cv_autopilot.value || !autopilot_active)
         return;
@@ -387,24 +391,49 @@ void A11Y_AutopilotUpdate(void)
     if (!player->mo || player->mo->health <= 0)
         return;
 
-    // Look for goal objects (end level signs, etc.)
+    // Check if we're stuck (haven't moved much)
+    fixed_t movement = P_AproxDistance(player->mo->x - lastX, player->mo->y - lastY);
+    if (movement < FRACUNIT * 2) // Less than 2 units of movement
+    {
+        stuck_counter++;
+        if (stuck_counter > 35) // About 1 second at 35 FPS
+        {
+            // We're stuck, try a different approach
+            exploration_angle += ANGLE_45; // Turn 45 degrees
+            if (M_RandomChance(FRACUNIT/32))
+                A11Y_SpeakText("Autopilot exploring new path");
+            stuck_counter = 0;
+        }
+    }
+    else
+    {
+        stuck_counter = 0;
+        lastX = player->mo->x;
+        lastY = player->mo->y;
+    }
+
+    // Look for goal objects (end level signs, exits, etc.)
+    // Also look for intermediate goals like rings if no main goal is visible
+    mobj_t *intermediate_goal = NULL;
+    fixed_t intermediateDistance = INT32_MAX;
+    
     for (th = thlist[THINK_MOBJ].next; th != &thlist[THINK_MOBJ]; th = th->next)
     {
         mobj_t *mobj = (mobj_t *)th;
-        fixed_t dist;
         
         if (!mobj || P_MobjWasRemoved(mobj))
             continue;
 
-        // Check for goal-type objects
+        dist = P_AproxDistance(P_AproxDistance(
+            mobj->x - player->mo->x,
+            mobj->y - player->mo->y),
+            mobj->z - player->mo->z);
+
+        // Check for primary goal objects
         switch (mobj->type)
         {
             case MT_SIGN: // End level sign
-                dist = P_AproxDistance(P_AproxDistance(
-                    mobj->x - player->mo->x,
-                    mobj->y - player->mo->y),
-                    mobj->z - player->mo->z);
-                    
+            case MT_STARPOST: // Checkpoint
                 if (dist < goalDistance)
                 {
                     goal = mobj;
@@ -412,58 +441,150 @@ void A11Y_AutopilotUpdate(void)
                 }
                 break;
                 
+            // Look for intermediate goals when no main goal is nearby
+            case MT_RING:
+            case MT_COIN:
+                if (!goal && dist < 512*FRACUNIT && dist < intermediateDistance)
+                {
+                    intermediate_goal = mobj;
+                    intermediateDistance = dist;
+                }
+                break;
+                
+            case MT_RING_BOX:
+            case MT_1UP_BOX:
+            case MT_INVULN_BOX:
+                if (!goal && dist < 256*FRACUNIT && dist < intermediateDistance)
+                {
+                    intermediate_goal = mobj;
+                    intermediateDistance = dist;
+                }
+                break;
+                
             default:
                 break;
         }
     }
+    
+    // Use intermediate goal if no primary goal found
+    if (!goal && intermediate_goal)
+    {
+        goal = intermediate_goal;
+        goalDistance = intermediateDistance;
+    }
 
-    // If we found a goal, move toward it
-    if (goal)
+    // Intelligent pathfinding behavior
+    if (goal && stuck_counter < 20) // If we have a goal and aren't stuck
     {
         goalAngle = R_PointToAngle2(player->mo->x, player->mo->y, goal->x, goal->y);
         
-        // Gradually turn toward the goal
+        // Use sophisticated angle adjustment like the enemy AI
         angle_t angleDiff = goalAngle - player->mo->angle;
-        if (angleDiff > (angle_t)ANGLE_180)
+        
+        // Normalize angle difference properly for unsigned type
+        while (angleDiff > ANGLE_180)
             angleDiff -= ANGLE_MAX;
-        else if (angleDiff < (angle_t)(-ANGLE_180))
+        while (angleDiff > ANGLE_MAX - ANGLE_180)  
             angleDiff += ANGLE_MAX;
             
-        // Turn toward goal (but not too quickly)
-        if (angleDiff > (angle_t)ANGLE_22h)
-            player->mo->angle += ANGLE_11hh;
-        else if (angleDiff < (angle_t)(-ANGLE_22h))
-            player->mo->angle -= ANGLE_11hh;
-        else
-            player->mo->angle = goalAngle;
+        // Smart turning - faster when far from target, slower when close
+        angle_t turnSpeed = ANGLE_11hh; // Base turn speed
+        boolean turnLeft = (angleDiff <= ANGLE_180);
+        angle_t absDiff = turnLeft ? angleDiff : (ANGLE_MAX - angleDiff);
+        
+        if (absDiff > ANGLE_90)
+            turnSpeed = ANGLE_22h; // Turn faster if we need to turn a lot
+        else if (absDiff < ANGLE_11hh)
+            turnSpeed = absDiff; // Fine adjustment when close
+            
+        if (absDiff > 0)
+        {
+            if (turnLeft)
+                player->mo->angle += turnSpeed;
+            else
+                player->mo->angle -= turnSpeed;
+        }
+    }
+    else if (stuck_counter >= 20)
+    {
+        // Use exploration angle when stuck
+        player->mo->angle = exploration_angle;
     }
 
-    // Simple forward movement with basic obstacle avoidance
-    fixed_t forwardDist = FRACUNIT * 8; // Try to move 8 units forward
-    fixed_t newX = player->mo->x + FixedMul(forwardDist, finecosine[player->mo->angle >> ANGLETOFINESHIFT]);
-    fixed_t newY = player->mo->y + FixedMul(forwardDist, finesine[player->mo->angle >> ANGLETOFINESHIFT]);
+    // Intelligent movement with multiple attempt distances
+    fixed_t moveSpeeds[] = {FRACUNIT * 12, FRACUNIT * 8, FRACUNIT * 4, FRACUNIT * 2};
+    boolean moveSuccessful = false;
     
-    if (P_TryMove(player->mo, newX, newY, true))
+    for (INT32 i = 0; i < 4 && !moveSuccessful; i++)
     {
-        // Movement successful
-        if (goal && M_RandomChance(FRACUNIT/128)) // Announce goal occasionally
+        fixed_t moveSpeed = moveSpeeds[i];
+        fixed_t newX = player->mo->x + FixedMul(moveSpeed, finecosine[player->mo->angle >> ANGLETOFINESHIFT]);
+        fixed_t newY = player->mo->y + FixedMul(moveSpeed, finesine[player->mo->angle >> ANGLETOFINESHIFT]);
+        
+        if (P_TryMove(player->mo, newX, newY, true))
         {
-            char message[64];
-            snprintf(message, sizeof(message), "Moving toward goal, distance %d", 
-                    FixedDiv(goalDistance, FRACUNIT));
-            A11Y_SpeakText(message);
-        }
-        else if (M_RandomChance(FRACUNIT/256))
-        {
-            A11Y_SpeakText("Autopilot moving forward");
+            moveSuccessful = true;
+            
+            // Announce progress occasionally
+            if (goal && M_RandomChance(FRACUNIT/256))
+            {
+                char message[64];
+                INT32 distanceUnits = FixedDiv(goalDistance, FRACUNIT);
+                if (distanceUnits > 1000)
+                    snprintf(message, sizeof(message), "Goal is far away");
+                else if (distanceUnits > 500)
+                    snprintf(message, sizeof(message), "Getting closer to goal");
+                else if (distanceUnits > 100) 
+                    snprintf(message, sizeof(message), "Goal nearby, distance %d", distanceUnits);
+                else
+                    snprintf(message, sizeof(message), "Very close to goal!");
+                A11Y_SpeakText(message);
+            }
+            break;
         }
     }
-    else
+    
+    if (!moveSuccessful)
     {
-        // Try turning if blocked
-        player->mo->angle += ANGLE_45;
-        if (M_RandomChance(FRACUNIT/64))
-            A11Y_SpeakText("Obstacle detected, turning");
+        // Try different angles if straight ahead doesn't work
+        angle_t testAngles[] = {ANGLE_22h, -ANGLE_22h, ANGLE_45, -ANGLE_45, ANGLE_90, -ANGLE_90};
+        
+        for (INT32 i = 0; i < 6 && !moveSuccessful; i++)
+        {
+            angle_t testAngle = player->mo->angle + testAngles[i];
+            fixed_t newX = player->mo->x + FixedMul(FRACUNIT * 6, finecosine[testAngle >> ANGLETOFINESHIFT]);
+            fixed_t newY = player->mo->y + FixedMul(FRACUNIT * 6, finesine[testAngle >> ANGLETOFINESHIFT]);
+            
+            if (P_TryMove(player->mo, newX, newY, true))
+            {
+                player->mo->angle = testAngle;
+                moveSuccessful = true;
+                if (M_RandomChance(FRACUNIT/64))
+                    A11Y_SpeakText("Autopilot navigating around obstacle");
+                break;
+            }
+        }
+    }
+    
+    if (!moveSuccessful)
+    {
+        // Last resort: turn around and try to find a new path
+        player->mo->angle += ANGLE_90;
+        stuck_counter += 5; // Increase stuck counter faster
+        if (M_RandomChance(FRACUNIT/32))
+            A11Y_SpeakText("Autopilot finding alternate route");
+    }
+    
+    // Try jumping if we're stuck and there might be a platform above
+    if (stuck_counter > 10 && P_IsObjectOnGround(player->mo))
+    {
+        // Simple jump attempt - this would need proper jump mechanics integration
+        if (M_RandomChance(FRACUNIT/16))
+        {
+            player->mo->momz = 8 * FRACUNIT; // Basic jump
+            if (M_RandomChance(FRACUNIT/8))
+                A11Y_SpeakText("Autopilot jumping");
+        }
     }
 }
 

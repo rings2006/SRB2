@@ -75,9 +75,14 @@ This document describes the accessibility features added to Sonic Robo Blast 2 t
 
 ### Autopilot
 - Toggle with `toggleautopilot` command
-- Provides intelligent pathfinding toward level goals
-- Automatically avoids basic obstacles by turning
-- Announces progress and obstacles occasionally
+- **Intelligent pathfinding** that seeks level goals (end signs, checkpoints)
+- **Obstacle avoidance** with multiple movement strategies
+- **Intermediate goal seeking** - navigates to rings and monitors when no main goal is visible
+- **Stuck detection** - automatically tries alternate routes when blocked
+- **Smart turning** - faster turns for large angle changes, precise turns for fine adjustments
+- **Multiple movement speeds** - tries different speeds to get around obstacles
+- **Jump assistance** - attempts jumping when ground movement is blocked
+- Provides audio feedback about movement, obstacles, and progress
 - Can be combined with manual controls
 
 ## Technical Details
@@ -96,11 +101,15 @@ This document describes the accessibility features added to Sonic Robo Blast 2 t
 ## Future Enhancements
 
 - True Tolk library integration for production builds
-- Enhanced pathfinding for autopilot
+- **Advanced pathfinding algorithms** with A* or similar algorithms
+- **Level analysis** for automatic route discovery
+- **Player movement integration** for proper jump timing and spin mechanics
 - Customizable beacon sounds and frequencies  
 - Voice announcements for game events
 - Configurable key bindings for accessibility features
 - Audio radar system for spatial awareness
+- **Ring collection optimization** for speedrun assistance
+- **Enemy avoidance patterns** based on enemy types
 
 ## Development Notes
 
