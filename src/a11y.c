@@ -18,6 +18,7 @@
 #include "i_system.h"
 #include "m_random.h"
 #include "command.h"
+#include "r_main.h" // for R_PointToAngle2
 
 // Console variables
 consvar_t cv_accessibility = CVAR_INIT("accessibility", "Off", CV_SAVE, CV_OnOff, NULL);
@@ -55,6 +56,71 @@ static void Command_TestNarration_f(void)
     A11Y_SpeakText("Accessibility test: This is a narration test");
 }
 
+static void Command_ScanArea_f(void)
+{
+    mobj_t *mobj;
+    thinker_t *th;
+    int ringCount = 0, enemyCount = 0, monitorCount = 0;
+    char statusMessage[256];
+    
+    if (!players[consoleplayer].mo)
+    {
+        A11Y_SpeakText("Player not found");
+        return;
+    }
+
+    // Count nearby objects
+    for (th = thlist[THINK_MOBJ].next; th != &thlist[THINK_MOBJ]; th = th->next)
+    {
+        mobj = (mobj_t *)th;
+        
+        if (!mobj || P_MobjWasRemoved(mobj))
+            continue;
+
+        // Check distance to player (within ~1024 units)
+        fixed_t dist = P_AproxDistance(P_AproxDistance(
+            mobj->x - players[consoleplayer].mo->x,
+            mobj->y - players[consoleplayer].mo->y),
+            mobj->z - players[consoleplayer].mo->z);
+
+        if (dist > 1024*FRACUNIT)
+            continue;
+
+        switch (mobj->type)
+        {
+            case MT_RING:
+            case MT_COIN:
+                ringCount++;
+                break;
+                
+            case MT_GOOMBA:
+            case MT_BLUECRAWLA:
+            case MT_REDCRAWLA:
+            case MT_DETON:
+            case MT_TURRET:
+                enemyCount++;
+                break;
+                
+            case MT_RING_BOX:
+            case MT_1UP_BOX:
+            case MT_INVULN_BOX:
+            case MT_SNEAKERS_BOX:
+            case MT_WHIRLWIND_BOX:
+                monitorCount++;
+                break;
+                
+            default:
+                // Skip other object types
+                break;
+        }
+    }
+    
+    snprintf(statusMessage, sizeof(statusMessage), 
+             "Area scan: %d rings, %d enemies, %d monitors nearby", 
+             ringCount, enemyCount, monitorCount);
+    A11Y_SpeakText(statusMessage);
+}
+
 //
 // A11Y_Init
 //
@@ -76,6 +142,7 @@ void A11Y_Init(void)
     COM_AddCommand("toggleautopilot", Command_ToggleAutopilot_f, 0);
     COM_AddCommand("testbeacon", Command_TestBeacon_f, 0);
     COM_AddCommand("testnarration", Command_TestNarration_f, 0);
+    COM_AddCommand("scanarea", Command_ScanArea_f, 0);
 
     // In a real implementation, this would initialize Tolk library
     // For now, we'll just set up our internal state
@@ -268,6 +335,8 @@ void A11Y_UpdateBeacons(void)
             case MT_GOOMBA:
             case MT_BLUECRAWLA:
             case MT_REDCRAWLA:
+            case MT_DETON:
+            case MT_TURRET:
                 if (M_RandomChance(FRACUNIT/16))
                     A11Y_PlayBeacon(mobj, BEACON_ENEMY);
                 break;
@@ -275,8 +344,20 @@ void A11Y_UpdateBeacons(void)
             case MT_RING_BOX:
             case MT_1UP_BOX:
             case MT_INVULN_BOX:
+            case MT_SNEAKERS_BOX:
+            case MT_WHIRLWIND_BOX:
                 if (M_RandomChance(FRACUNIT/8))
                     A11Y_PlayBeacon(mobj, BEACON_MONITOR);
+                break;
+                
+            case MT_SIGN: // End level sign
+                if (M_RandomChance(FRACUNIT/4))
+                    A11Y_PlayBeacon(mobj, BEACON_GOAL);
+                break;
+                
+            case MT_SPIKE:
+                if (M_RandomChance(FRACUNIT/16))
+                    A11Y_PlayBeacon(mobj, BEACON_HAZARD);
                 break;
                 
             default:
@@ -294,28 +375,95 @@ void A11Y_UpdateBeacons(void)
 void A11Y_AutopilotUpdate(void)
 {
     player_t *player;
+    mobj_t *goal = NULL;
+    thinker_t *th;
+    fixed_t goalDistance = INT32_MAX;
+    angle_t goalAngle = 0;
     
     if (!cv_autopilot.value || !autopilot_active)
         return;
 
     player = &players[consoleplayer];
-    if (!player->mo)
+    if (!player->mo || player->mo->health <= 0)
         return;
 
-    // Very basic autopilot - just move forward when possible
-    // In a real implementation, this would use pathfinding
-    if (player->mo->health > 0)
+    // Look for goal objects (end level signs, etc.)
+    for (th = thlist[THINK_MOBJ].next; th != &thlist[THINK_MOBJ]; th = th->next)
     {
-        // Simple forward movement
-        if (P_TryMove(player->mo, 
-                     player->mo->x + FixedMul(FRACUNIT*4, finecosine[player->mo->angle >> ANGLETOFINESHIFT]),
-                     player->mo->y + FixedMul(FRACUNIT*4, finesine[player->mo->angle >> ANGLETOFINESHIFT]),
-                     true))
+        mobj_t *mobj = (mobj_t *)th;
+        fixed_t dist;
+        
+        if (!mobj || P_MobjWasRemoved(mobj))
+            continue;
+
+        // Check for goal-type objects
+        switch (mobj->type)
         {
-            // Movement successful - announce occasionally
-            if (M_RandomChance(FRACUNIT/64))
-                A11Y_SpeakText("Moving forward");
+            case MT_SIGN: // End level sign
+                dist = P_AproxDistance(P_AproxDistance(
+                    mobj->x - player->mo->x,
+                    mobj->y - player->mo->y),
+                    mobj->z - player->mo->z);
+                    
+                if (dist < goalDistance)
+                {
+                    goal = mobj;
+                    goalDistance = dist;
+                }
+                break;
+                
+            default:
+                break;
         }
+    }
+
+    // If we found a goal, move toward it
+    if (goal)
+    {
+        goalAngle = R_PointToAngle2(player->mo->x, player->mo->y, goal->x, goal->y);
+        
+        // Gradually turn toward the goal
+        angle_t angleDiff = goalAngle - player->mo->angle;
+        if (angleDiff > (angle_t)ANGLE_180)
+            angleDiff -= ANGLE_MAX;
+        else if (angleDiff < (angle_t)(-ANGLE_180))
+            angleDiff += ANGLE_MAX;
+            
+        // Turn toward goal (but not too quickly)
+        if (angleDiff > (angle_t)ANGLE_22h)
+            player->mo->angle += ANGLE_11hh;
+        else if (angleDiff < (angle_t)(-ANGLE_22h))
+            player->mo->angle -= ANGLE_11hh;
+        else
+            player->mo->angle = goalAngle;
+    }
+
+    // Simple forward movement with basic obstacle avoidance
+    fixed_t forwardDist = FRACUNIT * 8; // Try to move 8 units forward
+    fixed_t newX = player->mo->x + FixedMul(forwardDist, finecosine[player->mo->angle >> ANGLETOFINESHIFT]);
+    fixed_t newY = player->mo->y + FixedMul(forwardDist, finesine[player->mo->angle >> ANGLETOFINESHIFT]);
+    
+    if (P_TryMove(player->mo, newX, newY, true))
+    {
+        // Movement successful
+        if (goal && M_RandomChance(FRACUNIT/128)) // Announce goal occasionally
+        {
+            char message[64];
+            snprintf(message, sizeof(message), "Moving toward goal, distance %d", 
+                    FixedDiv(goalDistance, FRACUNIT));
+            A11Y_SpeakText(message);
+        }
+        else if (M_RandomChance(FRACUNIT/256))
+        {
+            A11Y_SpeakText("Autopilot moving forward");
+        }
+    }
+    else
+    {
+        // Try turning if blocked
+        player->mo->angle += ANGLE_45;
+        if (M_RandomChance(FRACUNIT/64))
+            A11Y_SpeakText("Obstacle detected, turning");
     }
 }
 

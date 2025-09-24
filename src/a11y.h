@@ -35,6 +35,9 @@ void A11Y_SpeakText(const char *text);
 void A11Y_NarrateMenuItem(const char *itemname, const char *value);
 void A11Y_NarrateMenuChange(const char *menuname);
 
+// Area scanning
+void A11Y_ScanArea(void);
+
 // Audio beacon system
 typedef enum {
     BEACON_RING,
