@@ -3031,6 +3031,26 @@ static void M_GoBack(INT32 choice)
 		M_ClearMenus(true);
 }
 
+static void M_NarrateItem(void)
+{
+	if (!currentMenu || !currentMenu->menuitems || itemOn >= currentMenu->numitems)
+		return;
+
+	const menuitem_t *item = &currentMenu->menuitems[itemOn];
+	const char *itemtext = item->text;
+	const char *valuetext = NULL;
+
+	if ((item->status & IT_TYPE) == IT_CVAR)
+	{
+		consvar_t *cv = (consvar_t *)item->itemaction;
+		if (cv)
+			valuetext = cv->string;
+	}
+
+	if (itemtext)
+		A11Y_NarrateMenuItem(M_GetText(itemtext), valuetext);
+}
+
 static void M_ChangeCvar(INT32 choice)
 {
 	consvar_t *cv = (consvar_t *)currentMenu->menuitems[itemOn].itemaction;
@@ -3067,6 +3087,8 @@ static void M_ChangeCvar(INT32 choice)
 	}
 	else
 		CV_AddValue(cv,choice);
+
+	M_NarrateItem();
 }
 
 static boolean M_ChangeStringCvar(INT32 choice)
@@ -3088,6 +3110,7 @@ static boolean M_ChangeStringCvar(INT32 choice)
 				buf[len-1] = 0;
 				CV_Set(cv, buf);
 			}
+			M_NarrateItem();
 			return true;
 		default:
 			if (choice >= 32 && choice <= 127)
@@ -3100,6 +3123,7 @@ static boolean M_ChangeStringCvar(INT32 choice)
 					buf[len] = 0;
 					CV_Set(cv, buf);
 				}
+				M_NarrateItem();
 				return true;
 			}
 			break;
@@ -3132,13 +3156,7 @@ static void M_NextOpt(void)
 	} while (oldItemOn != itemOn && ( (currentMenu->menuitems[itemOn].status & IT_TYPE) & IT_SPACE ));
 	M_UpdateItemOn();
 	
-	// Add accessibility narration
-	if (currentMenu && currentMenu->menuitems && itemOn < currentMenu->numitems)
-	{
-		const char *itemtext = currentMenu->menuitems[itemOn].text;
-		if (itemtext)
-			A11Y_NarrateMenuItem(itemtext, NULL);
-	}
+	M_NarrateItem();
 }
 
 static void M_PrevOpt(void)
@@ -3153,13 +3171,7 @@ static void M_PrevOpt(void)
 	} while (oldItemOn != itemOn && ( (currentMenu->menuitems[itemOn].status & IT_TYPE) & IT_SPACE ));
 	M_UpdateItemOn();
 	
-	// Add accessibility narration
-	if (currentMenu && currentMenu->menuitems && itemOn < currentMenu->numitems)
-	{
-		const char *itemtext = currentMenu->menuitems[itemOn].text;
-		if (itemtext)
-			A11Y_NarrateMenuItem(itemtext, NULL);
-	}
+	M_NarrateItem();
 }
 
 // lock out further input in a tic when important buttons are pressed
@@ -3880,7 +3892,7 @@ void M_SetupNextMenu(menu_t *menudef)
 	// Add accessibility narration for menu changes
 	if (menudef && menudef->menutitlepic)
 	{
-		A11Y_NarrateMenuChange(menudef->menutitlepic);
+		A11Y_NarrateMenuChange(M_GetText(menudef->menutitlepic));
 	}
 	
 	// Narrate the current menu item
@@ -3888,7 +3900,7 @@ void M_SetupNextMenu(menu_t *menudef)
 	{
 		const char *itemtext = currentMenu->menuitems[itemOn].text;
 		if (itemtext)
-			A11Y_NarrateMenuItem(itemtext, NULL);
+			A11Y_NarrateMenuItem(M_GetText(itemtext), NULL);
 	}
 }
 
