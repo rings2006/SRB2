@@ -31,6 +31,10 @@ static boolean a11y_initialized = false;
 static boolean autopilot_active = false;
 static INT32 beacon_timer = 0;
 
+#ifdef USE_TOLK
+#include <Tolk.h>
+#endif
+
 // Tolk stubs - in a real implementation, these would call actual Tolk functions
 static boolean tolk_available = false;
 
@@ -144,9 +148,14 @@ void A11Y_Init(void)
     COM_AddCommand("testnarration", Command_TestNarration_f, 0);
     COM_AddCommand("scanarea", Command_ScanArea_f, 0);
 
+#ifdef USE_TOLK
+    Tolk_Load();
+    tolk_available = Tolk_DetectScreenReader() != NULL;
+#else
     // In a real implementation, this would initialize Tolk library
     // For now, we'll just set up our internal state
     tolk_available = false; // Would check for actual screen reader
+#endif
 
     CONS_Printf("Accessibility system initialized\n");
     a11y_initialized = true;
@@ -162,7 +171,9 @@ void A11Y_Shutdown(void)
     if (!a11y_initialized)
         return;
 
-    // In a real implementation, this would shutdown Tolk
+#ifdef USE_TOLK
+    Tolk_Unload();
+#endif
     tolk_available = false;
     a11y_initialized = false;
 }
@@ -177,6 +188,24 @@ boolean A11Y_ScreenReaderOutput(const char *text)
     if (!cv_accessibility.value || !a11y_initialized)
         return false;
 
+#ifdef USE_TOLK
+    if (tolk_available && text && *text)
+    {
+        // Convert UTF-8 to wide string for Tolk
+        int len = MultiByteToWideChar(CP_UTF8, 0, text, -1, NULL, 0);
+        if (len > 0)
+        {
+            wchar_t *wtext = (wchar_t *)malloc(len * sizeof(wchar_t));
+            if (wtext)
+            {
+                MultiByteToWideChar(CP_UTF8, 0, text, -1, wtext, len);
+                Tolk_Output(wtext, false);
+                free(wtext);
+                return true;
+            }
+        }
+    }
+#else
     // Tolk stub - in real implementation would call Tolk_Output
     if (tolk_available && text && *text)
     {
@@ -184,6 +213,7 @@ boolean A11Y_ScreenReaderOutput(const char *text)
         CONS_Printf("Screen reader: %s\n", text);
         return true;
     }
+#endif
     return false;
 }
 
